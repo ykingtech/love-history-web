@@ -2,6 +2,8 @@ import './styles.css';
 
 type AuthMode = 'login' | 'register';
 
+const logoUrl = `${import.meta.env.BASE_URL}love-history-logo.png`;
+
 const icon = (name: 'shield' | 'id' | 'lock' | 'eye' | 'history' | 'link' | 'user' | 'search' | 'logout') => {
   const paths: Record<typeof name, string> = {
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
@@ -49,7 +51,7 @@ function authView(mode: AuthMode = 'login') {
     <div class="page-shell noise">
       <header class="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
         <a href="#" class="flex items-center gap-3" aria-label="Love History home">
-          <img src="/love-history-logo.png" alt="" class="h-12 w-12 object-contain" />
+          <img src="${logoUrl}" alt="" class="h-12 w-12 object-contain" />
           <div><p class="text-lg font-extrabold tracking-[-.03em] text-[#5f1230]">Love History</p><p class="text-[11px] font-semibold uppercase tracking-[.19em] text-[#a36d80]">Private by design</p></div>
         </a>
         <button id="security-open" class="flex items-center gap-2 rounded-full border border-[#e6d8de] bg-white/70 px-4 py-2 text-sm font-semibold text-[#6b2841] hover:bg-white">
@@ -145,7 +147,7 @@ function dashboardView() {
   return `<div class="page-shell noise min-h-screen">
     <header class="border-b border-[#eadde2] bg-white/80 backdrop-blur-xl">
       <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
-        <div class="flex items-center gap-3"><img src="/love-history-logo.png" alt="" class="h-11 w-11 object-contain"/><div><p class="font-black tracking-[-.03em] text-[#5f1230]">Love History</p><p class="text-[10px] font-bold uppercase tracking-[.16em] text-[#a36d80]">Private dashboard</p></div></div>
+        <div class="flex items-center gap-3"><img src="${logoUrl}" alt="" class="h-11 w-11 object-contain"/><div><p class="font-black tracking-[-.03em] text-[#5f1230]">Love History</p><p class="text-[10px] font-bold uppercase tracking-[.16em] text-[#a36d80]">Private dashboard</p></div></div>
         <div class="flex items-center gap-2"><button id="privacy-center" class="rounded-full border border-[#e6d8de] bg-white p-2.5 text-[#6b2841]" aria-label="Open privacy centre">${icon('shield')}</button><button id="logout" class="flex items-center gap-2 rounded-full bg-[#f3e8ec] px-4 py-2.5 text-sm font-bold text-[#6b2841]">${icon('logout')} Exit preview</button></div>
       </div>
     </header>
