@@ -1,5 +1,5 @@
 import './styles.css';
-import { endRelationship, loadDashboard, login, logout, registerAccount, respondToRequest, sendRelationshipRequest, waitForSession } from './firebase-client';
+import { endRelationship, loadDashboard, login, logout, registerAccount, respondToRequest, sendBreakupMessage, sendRelationshipRequest, waitForSession } from './firebase-client';
 
 type AuthMode = 'login' | 'register';
 
@@ -330,7 +330,11 @@ async function renderDashboard() {
     historyContent.innerHTML = data.history.map((item) => {
       const other = Object.entries(item.participantNames).find(([uid]) => uid !== data.profile.uid)?.[1] ?? 'Private partner';
       const date = item.breakupAt?.toDate ? item.breakupAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Pending finalization';
-      return `<div class="mb-3 rounded-2xl bg-[#fff7fa] p-4"><strong class="text-[#4d1b2e]">Relationship with ${escapeHtml(other)}</strong><p class="mt-1">Separated: ${escapeHtml(date)} · ${item.status === 'ended_pending' ? 'Finalizes after 10 days' : 'Finalized'}</p></div>`;
+      const messages = item.breakupMessages ?? [];
+      const messageForm = item.status === 'ended_pending' && item.breakupRequestedBy !== data.profile.uid && messages.length < 10
+        ? `<div class="mt-3 flex gap-2"><input data-breakup-input="${item.id}" class="field !pl-3" maxlength="500" placeholder="Send a final message"/><button data-breakup-message="${item.id}" class="rounded-xl bg-[#7d1b40] px-3 text-xs font-bold text-white">Send</button></div>`
+        : '';
+      return `<div class="mb-3 rounded-2xl bg-[#fff7fa] p-4"><strong class="text-[#4d1b2e]">Relationship with ${escapeHtml(other)}</strong><p class="mt-1">Separated: ${escapeHtml(date)} · ${item.status === 'ended_pending' ? 'Finalizes after 10 days' : 'Finalized'}</p><p class="mt-1 text-xs">${messages.length}/10 final messages used</p>${messageForm}</div>`;
     }).join('');
   }
   const togetherSpace = document.querySelector<HTMLElement>('#together-space');
@@ -351,6 +355,14 @@ async function renderDashboard() {
   document.querySelectorAll<HTMLButtonElement>('[data-request-id]').forEach((button) => button.addEventListener('click', async () => {
     button.disabled = true;
     try { await respondToRequest(button.dataset.requestId ?? '', button.dataset.answer === 'yes'); await renderDashboard(); }
+    catch (error) { button.disabled = false; window.alert(friendlyError(error)); }
+  }));
+  document.querySelectorAll<HTMLButtonElement>('[data-breakup-message]').forEach((button) => button.addEventListener('click', async () => {
+    const id = button.dataset.breakupMessage ?? '';
+    const input = document.querySelector<HTMLInputElement>(`[data-breakup-input="${id}"]`);
+    if (!input) return;
+    button.disabled = true;
+    try { await sendBreakupMessage(id, input.value); await renderDashboard(); }
     catch (error) { button.disabled = false; window.alert(friendlyError(error)); }
   }));
   document.querySelector('#send-request')?.addEventListener('click', async () => {

@@ -13,7 +13,7 @@ https://ykingtech.github.io/love-history-web/
 - Browser-side PBKDF2 + AES-256-GCM encryption for full name and birthday
 - Owner-only private profiles and non-listable exact-key lookup
 - Mutual relationship requests and acceptance
-- Active relationship state, private history, and immediate separation with a 10-day finalization marker
+- Active relationship state, private history, immediate separation, up to 10 final messages from the other partner, and 10-day finalization on next access
 - Automatic GitHub Pages deployment from `main`
 
 ## Deploy

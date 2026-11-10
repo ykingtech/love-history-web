@@ -23,7 +23,7 @@ const db = firebase.firestore();
 const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
 
 export type Profile = { uid: string; displayName: string; publicId: string; loveKeyMasked: string };
-export type Relationship = { id: string; participantUids: string[]; participantNames: Record<string, string>; status: 'active' | 'ended_pending' | 'ended'; startedAt?: any; breakupAt?: any; finalizeAt?: any };
+export type Relationship = { id: string; participantUids: string[]; participantNames: Record<string, string>; status: 'active' | 'ended_pending' | 'ended'; startedAt?: any; breakupAt?: any; finalizeAt?: any; breakupRequestedBy?: string; breakupMessages?: Array<{ senderUid: string; text: string; sentAt: any }> };
 export type IncomingRequest = { id: string; fromUid: string; fromName: string; status: string };
 export type DashboardData = { profile: Profile; active: Relationship | null; history: Relationship[]; incoming: IncomingRequest[] };
 
@@ -135,6 +135,10 @@ export async function loadDashboard(): Promise<DashboardData> {
   ]);
   if (!profileSnap.exists) throw new Error('Profile is missing.');
   const relationships = relationshipSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })) as Relationship[];
+  await Promise.all(relationships.filter((item) => item.status === 'ended_pending' && item.finalizeAt?.toMillis?.() <= Date.now()).map(async (item) => {
+    await db.collection('relationships').doc(item.id).update({ status: 'ended', finalizedAt: serverTimestamp() });
+    item.status = 'ended';
+  }));
   return {
     profile: profileSnap.data() as Profile,
     active: relationships.find((item) => item.status === 'active') ?? null,
@@ -173,5 +177,22 @@ export async function endRelationship(relationshipId: string) {
   if (!user) throw new Error('Please log in again.');
   const now = new Date();
   const finalizeAt = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
-  await db.collection('relationships').doc(relationshipId).update({ status: 'ended_pending', breakupRequestedBy: user.uid, breakupAt: serverTimestamp(), finalizeAt });
+  await db.collection('relationships').doc(relationshipId).update({ status: 'ended_pending', breakupRequestedBy: user.uid, breakupAt: serverTimestamp(), finalizeAt, breakupMessages: [] });
+}
+
+export async function sendBreakupMessage(relationshipId: string, text: string) {
+  const user = auth.currentUser;
+  const cleanText = text.trim();
+  if (!user) throw new Error('Please log in again.');
+  if (!cleanText || cleanText.length > 500) throw new Error('Message must contain 1 to 500 characters.');
+  const ref = db.collection('relationships').doc(relationshipId);
+  await db.runTransaction(async (tx: any) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists || snapshot.get('status') !== 'ended_pending') throw new Error('The message period has ended.');
+    if (snapshot.get('breakupRequestedBy') === user.uid) throw new Error('Only the other partner can send these messages.');
+    if (snapshot.get('finalizeAt')?.toMillis?.() <= Date.now()) throw new Error('The 10-day message period has ended.');
+    const messages = snapshot.get('breakupMessages') ?? [];
+    if (messages.length >= 10) throw new Error('The 10-message limit has been reached.');
+    tx.update(ref, { breakupMessages: [...messages, { senderUid: user.uid, text: cleanText, sentAt: new Date() }] });
+  });
 }

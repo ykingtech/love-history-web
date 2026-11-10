@@ -63,10 +63,34 @@ service cloud.firestore {
         && request.resource.data.participantUids.size() == 2;
       allow update: if signedIn()
         && request.auth.uid in resource.data.participantUids
-        && resource.data.status == 'active'
-        && request.resource.data.status == 'ended_pending'
-        && request.resource.data.breakupRequestedBy == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'breakupRequestedBy', 'breakupAt', 'finalizeAt']);
+        && (
+          (
+            resource.data.status == 'active'
+            && request.resource.data.status == 'ended_pending'
+            && request.resource.data.breakupRequestedBy == request.auth.uid
+            && request.resource.data.breakupMessages.size() == 0
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'breakupRequestedBy', 'breakupAt', 'finalizeAt', 'breakupMessages'])
+          )
+          || (
+            resource.data.status == 'ended_pending'
+            && request.resource.data.status == 'ended_pending'
+            && request.auth.uid != resource.data.breakupRequestedBy
+            && request.time < resource.data.finalizeAt
+            && resource.data.breakupMessages.size() < 10
+            && request.resource.data.breakupMessages.size() == resource.data.breakupMessages.size() + 1
+            && request.resource.data.breakupMessages[resource.data.breakupMessages.size()].senderUid == request.auth.uid
+            && request.resource.data.breakupMessages[resource.data.breakupMessages.size()].text is string
+            && request.resource.data.breakupMessages[resource.data.breakupMessages.size()].text.size() >= 1
+            && request.resource.data.breakupMessages[resource.data.breakupMessages.size()].text.size() <= 500
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['breakupMessages'])
+          )
+          || (
+            resource.data.status == 'ended_pending'
+            && request.resource.data.status == 'ended'
+            && request.time >= resource.data.finalizeAt
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'finalizedAt'])
+          )
+        );
       allow delete: if false;
     }
 
