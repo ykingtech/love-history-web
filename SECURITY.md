@@ -1,13 +1,13 @@
 # Love History security baseline
 
-## Sensitive identity data
+## Sensitive account data
 
-The national identity number must never be stored, logged, rendered, placed in a URL, sent to analytics, or used as a Firestore document ID in plaintext.
+The app does not collect a national identity number. Birthday, full legal name and the generated Love Key must never be logged, placed in a URL, sent to analytics, or used as a Firestore document ID in plaintext.
 
 The server derives two separate representations:
 
-1. `HMAC-SHA-256(secret, normalized NIC)` for exact-match lookup. This prevents prefix queries and makes an offline database dump insufficient for direct enumeration without the server secret.
-2. AES-256-GCM ciphertext with a random 96-bit IV and authenticated additional data. This copy exists only if a documented legal or account-recovery requirement needs reversibility. Prefer deleting this copy entirely if reversibility is unnecessary.
+1. `HMAC-SHA-256(secret, normalized Love Key)` for exact-match lookup. This prevents prefix queries and makes an offline database dump insufficient for direct enumeration without the server secret.
+2. AES-256-GCM ciphertext with a random 96-bit IV and authenticated additional data for birthday and full legal name. Prefer deleting fields that are no longer required.
 
 Encryption and HMAC keys are independent, versioned, rotated, and stored outside Firestore in the hosting platform's secret manager.
 
@@ -25,7 +25,7 @@ Browser clients do not access Firestore directly. Client security rules are defa
 
 ## Before production
 
-- Obtain a Sri Lankan privacy/legal review for processing NIC data and relationship history.
+- Obtain a Sri Lankan privacy/legal review for processing birthdays, legal names and relationship history.
 - Complete a data-protection impact assessment and define retention/deletion periods.
 - Add abuse reporting, blocking, emergency account lock, audit review, backup restoration tests, key-rotation tests, and incident response procedures.
 - Commission an independent penetration test. This repository is a secure baseline, not a security certification.

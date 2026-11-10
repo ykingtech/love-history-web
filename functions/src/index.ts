@@ -10,36 +10,36 @@ import { onRequest } from 'firebase-functions/v2/https';
 initializeApp();
 
 const db = getFirestore();
-const NIC_HMAC_KEY = defineSecret('NIC_HMAC_KEY');
-const NIC_ENCRYPTION_KEY = defineSecret('NIC_ENCRYPTION_KEY');
+const IDENTITY_HMAC_KEY = defineSecret('IDENTITY_HMAC_KEY');
+const PRIVATE_DATA_ENCRYPTION_KEY = defineSecret('PRIVATE_DATA_ENCRYPTION_KEY');
 const RATE_LIMIT_HMAC_KEY = defineSecret('RATE_LIMIT_HMAC_KEY');
 const FIREBASE_WEB_API_KEY = defineSecret('FIREBASE_WEB_API_KEY');
 const ALLOWED_ORIGIN = defineSecret('ALLOWED_ORIGIN');
 
 const SESSION_COOKIE = '__Host-session';
 const FIVE_DAYS = 5 * 24 * 60 * 60 * 1000;
-const secrets = [NIC_HMAC_KEY, NIC_ENCRYPTION_KEY, RATE_LIMIT_HMAC_KEY, FIREBASE_WEB_API_KEY, ALLOWED_ORIGIN];
+const secrets = [IDENTITY_HMAC_KEY, PRIVATE_DATA_ENCRYPTION_KEY, RATE_LIMIT_HMAC_KEY, FIREBASE_WEB_API_KEY, ALLOWED_ORIGIN];
 
 type JsonRecord = Record<string, unknown>;
 
-function normalizeNic(value: unknown): string {
+function normalizeLoveKey(value: unknown): string {
   if (typeof value !== 'string') throw new PublicError(400, 'Invalid credentials.');
-  const normalized = value.trim().replace(/[\s-]/g, '').toUpperCase();
-  if (!/^(?:\d{9}[VX]|\d{12})$/.test(normalized)) throw new PublicError(400, 'Invalid credentials.');
+  const normalized = value.trim().toLowerCase().replace(/\s/g, '');
+  if (!/^\d{6,8}[a-z]{3}(?:-[a-z0-9]{2,4})?$/.test(normalized)) throw new PublicError(400, 'Invalid credentials.');
   return normalized;
 }
 
-function lookupToken(nic: string): string {
-  return createHmac('sha256', NIC_HMAC_KEY.value()).update(`nic:v1:${nic}`, 'utf8').digest('hex');
+function lookupToken(loveKey: string): string {
+  return createHmac('sha256', IDENTITY_HMAC_KEY.value()).update(`love-key:v1:${loveKey}`, 'utf8').digest('hex');
 }
 
-function encryptNic(nic: string) {
-  const key = Buffer.from(NIC_ENCRYPTION_KEY.value(), 'base64');
-  if (key.length !== 32) throw new Error('NIC_ENCRYPTION_KEY must decode to exactly 32 bytes.');
+function encryptPrivateData(value: JsonRecord) {
+  const key = Buffer.from(PRIVATE_DATA_ENCRYPTION_KEY.value(), 'base64');
+  if (key.length !== 32) throw new Error('PRIVATE_DATA_ENCRYPTION_KEY must decode to exactly 32 bytes.');
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
-  cipher.setAAD(Buffer.from('love-history:nic:v1', 'utf8'));
-  const ciphertext = Buffer.concat([cipher.update(nic, 'utf8'), cipher.final()]);
+  cipher.setAAD(Buffer.from('love-history:private-account:v1', 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
   return {
     algorithm: 'AES-256-GCM',
     keyVersion: 1,
@@ -50,7 +50,51 @@ function encryptNic(nic: string) {
 }
 
 function syntheticEmail(token: string): string {
-  return `${token}@nic.lovehistory.invalid`;
+  return `${token}@key.lovehistory.invalid`;
+}
+
+function fullNameFrom(body: JsonRecord): string {
+  const value = typeof body.fullName === 'string' ? body.fullName.trim().replace(/\s+/g, ' ') : '';
+  if (value.length < 3 || value.length > 100 || !/^[a-zA-Z.' -]+$/.test(value)) throw new PublicError(400, 'Invalid account details.');
+  return value;
+}
+
+function birthdayFrom(body: JsonRecord): string {
+  const value = typeof body.birthday === 'string' ? body.birthday : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new PublicError(400, 'Invalid account details.');
+  const birthday = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(birthday.getTime()) || birthday.toISOString().slice(0, 10) !== value) throw new PublicError(400, 'Invalid account details.');
+  const now = new Date();
+  let age = now.getUTCFullYear() - birthday.getUTCFullYear();
+  if (now.getUTCMonth() < birthday.getUTCMonth() || (now.getUTCMonth() === birthday.getUTCMonth() && now.getUTCDate() < birthday.getUTCDate())) age -= 1;
+  if (age < 18 || age > 100) throw new PublicError(400, 'Account eligibility could not be verified.');
+  return value;
+}
+
+function givenNameFragment(fullName: string): string {
+  const candidate = fullName.toLowerCase().split(/\s+/).find((word) => word.replace(/\./g, '').length >= 3) ?? '';
+  const fragment = candidate.normalize('NFKD').replace(/[^a-z]/g, '').slice(0, 3);
+  if (fragment.length !== 3) throw new PublicError(400, 'Invalid account details.');
+  return fragment;
+}
+
+function baseLoveKey(fullName: string, birthday: string): string {
+  const [year, month, day] = birthday.split('-');
+  return `${Number(day)}${Number(month)}${year}${givenNameFragment(fullName)}`;
+}
+
+function publicDisplayName(fullName: string): string {
+  const candidate = fullName.split(/\s+/).find((word) => word.replace(/\./g, '').length >= 3) ?? 'Member';
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+}
+
+async function availableLoveKey(base: string): Promise<{ loveKey: string; token: string }> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const loveKey = attempt === 0 ? base : `${base}-${randomBytes(2).toString('hex').slice(0, 3)}`;
+    const token = lookupToken(loveKey);
+    if (!(await db.collection('_loginKeyLookup').doc(token).get()).exists) return { loveKey, token };
+  }
+  throw new PublicError(409, 'Unable to create account.');
 }
 
 function parseCookies(value = ''): Record<string, string> {
@@ -93,12 +137,6 @@ function passwordFrom(body: JsonRecord): string {
     throw new PublicError(400, 'Invalid credentials.');
   }
   return password;
-}
-
-function displayNameFrom(body: JsonRecord): string {
-  const value = typeof body.displayName === 'string' ? body.displayName.trim() : '';
-  if (value.length < 2 || value.length > 60 || /[<>]/.test(value)) throw new PublicError(400, 'Invalid profile details.');
-  return value;
 }
 
 async function signInWithPassword(email: string, password: string): Promise<string> {
@@ -153,12 +191,13 @@ export const authApi = onRequest({ region: 'asia-south1', secrets, invoker: 'pub
 
     if (req.method === 'POST' && path === '/register') {
       await enforceRateLimit(req, 'register', 4, 30);
-      const nic = normalizeNic(body.nic);
+      const fullName = fullNameFrom(body);
+      const birthday = birthdayFrom(body);
       const password = passwordFrom(body);
-      const displayName = displayNameFrom(body);
-      const token = lookupToken(nic);
-      const lookupRef = db.collection('_identityLookup').doc(token);
-      if ((await lookupRef.get()).exists) throw new PublicError(409, 'Unable to create account.');
+      if (body.passwordConfirm !== password) throw new PublicError(400, 'Invalid account details.');
+      const displayName = publicDisplayName(fullName);
+      const { loveKey, token } = await availableLoveKey(baseLoveKey(fullName, birthday));
+      const lookupRef = db.collection('_loginKeyLookup').doc(token);
 
       let uid: string | undefined;
       try {
@@ -168,13 +207,13 @@ export const authApi = onRequest({ region: 'asia-south1', secrets, invoker: 'pub
         await db.runTransaction(async (tx) => {
           if ((await tx.get(lookupRef)).exists) throw new PublicError(409, 'Unable to create account.');
           tx.create(lookupRef, { uid: createdUid, createdAt: FieldValue.serverTimestamp() });
-          tx.create(db.collection('_privateIdentities').doc(createdUid), { nic: encryptNic(nic), createdAt: FieldValue.serverTimestamp() });
+          tx.create(db.collection('_privateAccounts').doc(createdUid), { accountDetails: encryptPrivateData({ fullName, birthday }), createdAt: FieldValue.serverTimestamp() });
           tx.create(db.collection('profiles').doc(createdUid), { displayName, publicId: randomBytes(9).toString('base64url'), relationshipStatus: 'single', createdAt: FieldValue.serverTimestamp() });
           tx.create(db.collection('_auditEvents').doc(), { type: 'account.created', actorUid: createdUid, at: FieldValue.serverTimestamp() });
         });
         const idToken = await signInWithPassword(syntheticEmail(token), password);
         setSessionCookie(res, await getAuth().createSessionCookie(idToken, { expiresIn: FIVE_DAYS }));
-        return json(res, 201, { ok: true });
+        return json(res, 201, { ok: true, loveKey });
       } catch (error) {
         if (uid) await getAuth().deleteUser(uid).catch(() => undefined);
         throw error;
@@ -183,9 +222,9 @@ export const authApi = onRequest({ region: 'asia-south1', secrets, invoker: 'pub
 
     if (req.method === 'POST' && path === '/login') {
       await enforceRateLimit(req, 'login', 6, 15);
-      const nic = normalizeNic(body.nic);
+      const loveKey = normalizeLoveKey(body.loveKey);
       const password = passwordFrom(body);
-      const idToken = await signInWithPassword(syntheticEmail(lookupToken(nic)), password);
+      const idToken = await signInWithPassword(syntheticEmail(lookupToken(loveKey)), password);
       setSessionCookie(res, await getAuth().createSessionCookie(idToken, { expiresIn: FIVE_DAYS }));
       return json(res, 200, { ok: true });
     }
@@ -205,8 +244,8 @@ export const authApi = onRequest({ region: 'asia-south1', secrets, invoker: 'pub
     if (req.method === 'POST' && path === '/search') {
       await requireUser(req);
       await enforceRateLimit(req, 'search', 12, 60);
-      const token = lookupToken(normalizeNic(body.nic));
-      const lookup = await db.collection('_identityLookup').doc(token).get();
+      const token = lookupToken(normalizeLoveKey(body.loveKey));
+      const lookup = await db.collection('_loginKeyLookup').doc(token).get();
       if (!lookup.exists) return json(res, 404, { found: false });
       const profile = await db.collection('profiles').doc(String(lookup.get('uid'))).get();
       return json(res, 200, { found: true, profile: { publicId: profile.get('publicId'), displayName: profile.get('displayName'), relationshipStatus: profile.get('relationshipStatus') } });
