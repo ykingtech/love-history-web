@@ -72,7 +72,8 @@ function birthdayFrom(body: JsonRecord): string {
 }
 
 function givenNameFragment(fullName: string): string {
-  const candidate = fullName.toLowerCase().split(/\s+/).find((word) => word.replace(/\./g, '').length >= 3) ?? '';
+  const candidate = fullName.toLowerCase().split(/\s+/)
+    .find((word) => !word.includes('.') && word.replace(/[^a-z]/g, '').length >= 3) ?? '';
   const fragment = candidate.normalize('NFKD').replace(/[^a-z]/g, '').slice(0, 3);
   if (fragment.length !== 3) throw new PublicError(400, 'Invalid account details.');
   return fragment;
@@ -84,7 +85,8 @@ function baseLoveKey(fullName: string, birthday: string): string {
 }
 
 function publicDisplayName(fullName: string): string {
-  const candidate = fullName.split(/\s+/).find((word) => word.replace(/\./g, '').length >= 3) ?? 'Member';
+  const candidate = fullName.split(/\s+/)
+    .find((word) => !word.includes('.') && word.replace(/[^a-z]/gi, '').length >= 3) ?? 'Member';
   return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
 }
 

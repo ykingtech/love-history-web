@@ -24,7 +24,7 @@ const securityPill = (text: string) => `
 
 function firstNameFragment(fullName: string): string {
   const words = fullName.toLowerCase().trim().split(/\s+/);
-  const givenName = words.find((word) => word.replace(/\./g, '').length >= 3) ?? '';
+  const givenName = words.find((word) => !word.includes('.') && word.replace(/[^a-z]/g, '').length >= 3) ?? '';
   return givenName.normalize('NFKD').replace(/[^a-z]/g, '').slice(0, 3);
 }
 
